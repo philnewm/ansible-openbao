@@ -1,8 +1,49 @@
 ---
 
-- name: Remove unused dependencies
+- name: "Look up entry in passwd for user {{ openbao_user }}"
   become: true
-  ansible.builtin.package:
-    autoremove: true
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ openbao_user }}"
+
+- name: Set openbao user uid
+  ansible.builtin.set_fact:
+    openbao_uid: "{{ ansible_facts.getent_passwd[openbao_user][1] }}"
+
+- name: List user services  # noqa: command-instead-of-module
+  become: true
+  become_user: "{{ openbao_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ openbao_uid }}"
+  ansible.builtin.command:
+    cmd: >
+      systemctl --user list-units
+      --type=service
+      --all
+      --no-pager
+      --output=json
+  register: user_services
+  changed_when: false
+
+- name: Extract unit names
+  ansible.builtin.set_fact:
+    service_names: "{{ user_services.stdout | from_json | map(attribute='unit') | list }}"
+
+- name: Stop openbao service
+  become: true
+  become_user: "{{ openbao_user }}"
+  when: openbao_container_name ~ '.service' in service_names
+  ansible.builtin.systemd_service:
+    name: "{{ openbao_container_name }}.service"
+    enabled: false
+    state: stopped
+    scope: user
+
+- name: Remove rootless user setup
+  become: true
+  ansible.builtin.import_role:
+    name: philnewm.podman_rootless_user
+  vars:
+    state: "{{ state }}"
 
 ...

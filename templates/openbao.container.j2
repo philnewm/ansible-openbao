@@ -1,0 +1,43 @@
+[Unit]
+AssertPathExists={{ openbao_service_dir }}/config/openbao.hcl
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/run/user/{{ openbao_uid }}/containers
+
+[Container]
+ContainerName={{ openbao_container_name }}
+Exec=server
+Image={{ openbao_image }}
+Network=pasta
+AddDevice=/dev/fuse
+LogDriver=journald
+
+# Pull behavior
+Pull=newer
+AutoUpdate=registry
+
+# Ports
+{% for name, config in openbao_ports.items() %}
+PublishPort={{ config.host_port }}:{{ config.container_port }}
+{% endfor %}
+
+{% if openbao_auto_unseal_enabled %}
+# Secrets
+Secret={{ openbao_auto_unseal_key_name }},target=/run/secrets/{{ openbao_auto_unseal_key_name }},uid=100,gid=1000,mode=0400
+{% endif %}
+
+# Volumes
+{% for volume_name, volume in openbao_volumes.items() %}
+{% set options = volume.options | default([]) + (['Z'] if ansible_facts.selinux.status | default('disabled') == 'enabled' else []) +%}
+Volume={{ volume.host_path }}:{{ volume.container_path }}{% if options %}:{{ options | join(',') }}{% endif %}
+{% endfor %}
+
+[Service]
+Restart=always
+RestartSec=10
+TimeoutStartSec=60
+TimeoutStopSec=30
+MemorySwapMax=0
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,76 @@
+---
+
+- name: Configure user access
+  when: bao_init_response is defined
+  block:
+    - name: Decrypt initial root token
+      delegate_to: localhost
+      environment:
+        GNUPGHOME: "{{ molecule_gpg_home }}"
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          base64 --decode | gpg --batch --quiet --decrypt
+        executable: /bin/bash
+        stdin: "{{ bao_init_response.root_token }}"
+        stdin_add_newline: false
+      register: decrypted_root_token
+      changed_when: false
+      no_log: true
+
+    - name: Set OpenBao test token
+      ansible.builtin.set_fact:
+        molecule_root_token: "{{ decrypted_root_token.stdout | trim }}"
+      no_log: true
+
+    - name: Read enabled auth methods
+      community.hashi_vault.vault_read:
+        url: "{{ openbao_local_url }}"
+        token: "{{ molecule_root_token }}"
+        path: sys/auth
+      register: openbao_auth_methods
+      no_log: true
+
+    - name: Enable Molecule userpass auth method
+      when: (openbao_test_auth_mount ~ '/') not in openbao_auth_methods.data.data
+      community.hashi_vault.vault_write:
+        url: "{{ openbao_local_url }}"
+        token: "{{ molecule_root_token }}"
+        path: "sys/auth/{{ openbao_test_auth_mount }}"
+        data:
+          type: userpass
+
+    - name: Create Molecule test policy
+      loop: "{{ openbao_policies }}"
+      loop_control:
+        loop_var: policy
+        label: "{{ policy.name }}"
+      community.hashi_vault.vault_write:
+        url: "{{ openbao_local_url }}"
+        token: "{{ molecule_root_token }}"
+        path: "sys/policies/acl/{{ policy.name }}"
+        data:
+          policy: "{{ lookup('ansible.builtin.file', policy.file) }}"
+      no_log: true
+
+    - name: List users before creation
+      community.hashi_vault.vault_list:
+        url: "{{ openbao_local_url }}"
+        token: "{{ molecule_root_token }}"
+        path: "auth/{{ openbao_test_auth_mount }}/users"
+      register: openbao_users_before
+      failed_when: false
+
+    - name: Create test user
+      community.hashi_vault.vault_write:
+        url: "{{ openbao_local_url }}"
+        token: "{{ molecule_root_token }}"
+        path: "auth/{{ openbao_test_auth_mount }}/users/{{ openbao_test_user }}"
+        data:
+          password: "{{ openbao_test_password }}"
+          token_policies:
+            - default
+            - molecule-test
+      no_log: true
+
+...

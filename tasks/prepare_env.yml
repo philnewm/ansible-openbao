@@ -1,0 +1,68 @@
+---
+
+- name: Prepare local key setup
+  delegate_to: localhost
+  run_once: true
+  block:
+    - name: Set Molecule GPG home
+      ansible.builtin.set_fact:
+        molecule_gpg_home: >-
+          {{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/gnupg
+
+    - name: Create Molecule GPG home
+      ansible.builtin.file:
+        path: "{{ molecule_gpg_home }}"
+        state: directory
+        mode: "0700"
+
+    - name: Check whether OpenBao Molecule GPG key exists
+      environment:
+        GNUPGHOME: "{{ molecule_gpg_home }}"
+      ansible.builtin.command:
+        argv:
+          - gpg
+          - --batch
+          - --list-secret-keys
+          - "OpenBao Molecule Test"
+      register: molecule_gpg_key
+      changed_when: false
+      failed_when: false
+
+    - name: Generate OpenBao Molecule GPG key
+      environment:
+        GNUPGHOME: "{{ molecule_gpg_home }}"
+      ansible.builtin.command:
+        argv:
+          - gpg
+          - --batch
+          - --passphrase
+          - ""
+          - --quick-generate-key
+          - "OpenBao Molecule Test <openbao@example.invalid>"
+          - rsa2048
+          - encrypt
+          - 0
+      when: molecule_gpg_key.rc != 0
+      changed_when: true
+
+    - name: Export public key
+      environment:
+        GNUPGHOME: "{{ molecule_gpg_home }}"
+      ansible.builtin.command:
+        argv:
+          - gpg
+          - --armor
+          - --export
+          - "OpenBao Molecule Test"
+      register: openbao_test_public_key
+      changed_when: false
+
+- name: Assign test environment keys
+  ansible.builtin.set_fact:
+    open_bao_root_token_gpg_key: "{{ openbao_test_public_key.stdout }}"
+    open_bao_recovery_pgp_keys:
+      - name: public_recovery_pgp_key
+        content: "{{ openbao_test_public_key.stdout }}"
+        file_name: recovery_pgp_key.pgp
+
+...
