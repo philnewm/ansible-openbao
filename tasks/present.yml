@@ -1,14 +1,64 @@
 ---
 
-- name: Install debian specific package_facts dependency
+- name: Include rootless user setup
   become: true
-  when: ansible_distribution == "Debian"
+  ansible.builtin.import_role:
+    name: philnewm.podman_rootless_user
+  vars:
+    rootless_user: "{{ openbao_user }}"
+    rootless_user_home: "/var/lib/{{ openbao_user }}"
+    system_user: true
+
+- name: Ensure required podman packages are installed
+  become: true
   ansible.builtin.package:
-    name: python-apt-common
+    name: "{{ podman_packages }}"
+    state: present
+    update_cache: true
+
+- name: Include pulp setup
+  ansible.builtin.include_tasks:
+    file: service_setup.yml
+
+- name: Ensure epel repo
+  become: true
+  when:
+    - ansible_facts.os_family | lower == "redhat"
+    - ansible_facts.distribution | lower != "fedora"
+  ansible.builtin.package:
+    name: "epel-release"
     state: present
 
-# INFO This task may be obsolete for your use-case
-- name: Gather package facts
-  ansible.builtin.package_facts:
+- name: Install python package
+  become: true
+  ansible.builtin.package:
+    name: python3-hvac
+    state: present
+
+- name: Configure firwalld
+  become: true
+  when: openbao_configure_firewalld
+  block:
+    - name: Ensure firewalld is installed
+      ansible.builtin.package:
+        name: firewalld
+        state: present
+
+    - name: Ensure firewalld is running
+      ansible.builtin.systemd_service:
+        name: firewalld
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Configure port forwarding
+      loop: "{{ openbao_ports | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      ansible.posix.firewalld:
+        port: "{{ item.value.host_port }}/{{ item.value.protocol }}"
+        state: "enabled"
+        permanent: true
+        immediate: true
 
 ...

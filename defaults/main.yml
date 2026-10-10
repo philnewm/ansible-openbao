@@ -1,5 +1,56 @@
 ---
 
 state: present
+openbao_user: "srv_openbao"
+openbao_user_home: "/var/lib/{{ openbao_user }}"
+openbao_service_dir: "{{ openbao_user_home }}/openbao_service"
+openbao_image: "quay.io/openbao/openbao:latest"
+openbao_container_name: "openbao"
+openbao_configure_firewalld: true
+openbao_config_file_src: openbao.hcl
+openbao_auto_unseal_enabled: true
+openbao_auto_unseal_type: static
+openbao_auto_unseal_key_name: "openbao-seal-key"
+openbao_auto_unseal_key: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
+openbao_test_user: molecule-test
+openbao_test_password: molecule-test-password
+openbao_test_auth_mount: molecule-userpass
+openbao_test_kv_mount: molecule-kv
+openbao_test_secret: test-secret
+openbao_user_id_map:
+  openbao:
+    uid: 100
+    gid: 1000
+openbao_ports:
+  api_port:
+    host_port: "8200"
+    container_port: "8200"
+    protocol: tcp
+openbao_local_url: "http://127.0.0.1:{{ openbao_ports.api_port.host_port }}"  # due to `tls_disable = true` in config
+openbao_volumes:
+  config:
+    host_path: "{{ openbao_service_dir }}/config"
+    container_path: "/openbao/config"
+    owner: "{{ openbao_config_owner }}"
+    group: "{{ openbao_config_group }}"
+    permissions: "0755"
+    options:
+      - rw
+      - U
+  data:
+    host_path: "{{ openbao_service_dir }}/data"
+    container_path: "/openbao/data"
+    owner: "{{ openbao_config_owner }}"
+    group: "{{ openbao_config_group }}"
+    permissions: "0700"
+    options:
+      - rw
+      - U
+openbao_post_tasks_file: null
+open_bao_root_token_gpg_key: null
+open_bao_recovery_pgp_keys: []
+openbao_policies:
+  - name: molecule-test
+    file: testing_policy.hcl
 
 ...

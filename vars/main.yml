@@ -1,5 +1,15 @@
 ---
 
-ansible_role_template: "Default role name still in use."
+podman_packages:
+  - podman
+  - systemd-container
+  - passt
+
+opanbao_packages:
+  redhat:
+    - epel-release
+    - python3-hvac
+  debian:
+    - python3-hvac
 
 ...

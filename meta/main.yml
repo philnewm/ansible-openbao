@@ -2,10 +2,9 @@
 
 galaxy_info:
   role_name: openbao
-  namespace: philnewm
-  author: author_name
-  description: ansible-role-template description
-  license: some_license
+  author: philnewm
+  description: Setup and configure openbao as rootless podman container
+  license: MIT
   min_ansible_version: "2.1"
   platforms:
     - name: EL
@@ -13,9 +12,13 @@ galaxy_info:
         - "9"
     - name: Debian
       versions:
-        - "bookworm"
+        - "trixie"
     - name: "Ubuntu"
       versions:
         - "jammy"
-  galaxy_tags: []
+  galaxy_tags:
+    - openbao
+    - secrets
+    - credentials
+    - vault
 dependencies: []

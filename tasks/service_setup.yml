@@ -1,0 +1,198 @@
+---
+
+- name: Read /etc/subuid
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      cat /etc/subuid | grep {{ openbao_user }}
+    executable: /bin/bash
+  register: subuids
+  changed_when: false
+
+- name: Read /etc/subgid
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      cat /etc/subgid | grep {{ openbao_user }}
+    executable: /bin/bash
+  register: subgids
+  changed_when: false
+
+- name: Set owner and group
+  ansible.builtin.set_fact:
+    openbao_config_owner: "{{ openbao_user_id_map.openbao.uid + (subuids.stdout.split(':')[1] | int) - 1 }}"
+    openbao_config_group: "{{ openbao_user_id_map.openbao.gid + (subgids.stdout.split(':')[1] | int) - 1 }}"
+
+- name: Ensure directories for volumes exist
+  become: true
+  loop: "{{ openbao_volumes | dict2items }}"
+  loop_control:
+    loop_var: volume
+    label: "{{ volume.key }}"
+  when: not (volume.value.file | default(false))
+  ansible.builtin.file:
+    path: "{{ volume.value.host_path }}"
+    state: directory
+    owner: "{{ volume.value.owner }}"
+    group: "{{ volume.value.group }}"
+    mode: "{{ volume.value.permissions }}"
+
+- name: Ensure .config/systemd/user directory exists
+  become: true
+  ansible.builtin.file:
+    path: "{{ openbao_user_home }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ openbao_user }}"
+    group: "{{ openbao_user }}"
+    mode: "0700"
+
+- name: "Look up entry in passwd for user {{ openbao_user }}"
+  become: true
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ openbao_user }}"
+
+- name: Set openbao user uid
+  ansible.builtin.set_fact:
+    openbao_uid: "{{ ansible_facts.getent_passwd[openbao_user][1] }}"
+
+- name: Copy openbao config file
+  become: true
+  ansible.builtin.copy:
+    src: "{{ openbao_config_file_src }}"
+    dest: "{{ openbao_service_dir }}/config/openbao.hcl"
+    owner: "{{ openbao_config_owner }}"
+    group: "{{ openbao_config_group }}"
+    mode: "0644"
+  register: openbao_config_file_result
+
+
+- name: Write root token encryption public key
+  become: true
+  when: open_bao_root_token_gpg_key is not none
+  ansible.builtin.copy:
+    content: "{{ open_bao_root_token_gpg_key }}"
+    dest: "{{ openbao_volumes.config.host_path }}/root-token.pgp"
+    owner: "{{ openbao_config_owner }}"
+    group: "{{ openbao_config_group }}"
+    mode: "0600"
+
+- name: Write recovery key encryption public keys
+  become: true
+  when: open_bao_recovery_pgp_keys is not none
+  loop: "{{ open_bao_recovery_pgp_keys }}"
+  loop_control:
+    loop_var: recovery_gpg_key
+    label: "{{ recovery_gpg_key.name }}"
+  ansible.builtin.copy:
+    content: "{{ recovery_gpg_key.content }}"
+    dest: "{{ openbao_volumes.config.host_path }}/{{ recovery_gpg_key.file_name }}"
+    owner: "{{ openbao_config_owner }}"
+    group: "{{ openbao_config_group }}"
+    mode: "0600"
+
+- name: Build recovery PGP key path list
+  ansible.builtin.set_fact:
+    openbao_recovery_pgp_key_paths: >-
+      {{
+        open_bao_recovery_pgp_keys
+        | map(attribute='file_name')
+        | map('regex_replace', '^',openbao_volumes.config.container_path ~ '/')
+        | list
+      }}
+
+- name: Create OpenBao seal secret
+  become: true
+  become_user: "{{ openbao_user }}"
+  vars:
+    ansible_become_user: "{{ openbao_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ openbao_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ openbao_uid }}/bus"
+  when: openbao_auto_unseal_type == "static" and openbao_auto_unseal_enabled
+  containers.podman.podman_secret:
+    name: "{{ openbao_auto_unseal_key_name }}"
+    data: "{{ openbao_auto_unseal_key }}"
+    state: present
+    skip_existing: true  # prevent overrides in subsequent runs
+  no_log: true
+
+- name: Template openbao quadlet
+  become: true
+  ansible.builtin.template:
+    src: openbao.container.j2
+    dest: "{{ openbao_user_home }}/.config/containers/systemd/openbao.container"
+    owner: "{{ openbao_user }}"
+    group: "{{ openbao_user }}"
+    mode: "0640"
+  register: openbaoquad_result
+
+- name: Manage rootless openbao service
+  become: true
+  become_user: "{{ openbao_user }}"
+  vars:
+    # Overriding the become_user task keyword.
+    # Effects even global overrides (like Foreman remote execution)
+    ansible_become_user: "{{ openbao_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ openbao_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ openbao_uid }}/bus"
+  block:
+    # creates /var/run/user/<uid>/systemd/generator/openbao.service
+    - name: Start or restart openbao
+      ansible.builtin.systemd_service:
+        name: "{{ openbao_container_name }}.service"
+        scope: user
+        state: "{{ (openbaoquad_result.changed or openbao_config_file_result.changed) | ternary('restarted', 'started') }}"
+        daemon_reload: true
+
+# https://blog.stderr.at/openshift-platform/security/secrets-management/openbao/2026-03-05-openbao-part-6-auto-unsealing/
+
+    - name: Check bao status
+      become: true
+      become_user: "{{ openbao_user }}"
+      containers.podman.podman_container_exec:
+        name: "{{ openbao_container_name }}"
+        env:
+          BAO_ADDR: "{{ openbao_local_url }}"
+        argv:
+          - bao
+          - status
+          - -format=json
+      register: bao_status
+      failed_when: bao_status.rc not in [0, 2]  # rc=2 when sealed
+      changed_when: false
+
+    - name: Parse bao status
+      ansible.builtin.set_fact:
+        bao_status_json: "{{ bao_status.stdout | from_json }}"
+
+    - name: Initilialize OpenBao configuration
+      become: true
+      become_user: "{{ openbao_user }}"
+      when: not bao_status_json.initialized
+      containers.podman.podman_container_exec:
+        name: "{{ openbao_container_name }}"
+        env:
+          BAO_ADDR: "{{ openbao_local_url }}"
+        argv:
+          - bao
+          - operator
+          - init
+          - -recovery-shares=1
+          - -recovery-threshold=1
+          - "-root-token-pgp-key={{ openbao_volumes.config.container_path }}/root-token.pgp"
+          - "-recovery-pgp-keys={{ openbao_recovery_pgp_key_paths | join(',') }}"
+          - -format=json
+      register: bao_init
+      changed_when: true
+
+    - name: Parse bao init result
+      when: not bao_status_json.initialized
+      ansible.builtin.set_fact:
+        bao_init_response: "{{ bao_init.stdout | from_json }}"
+
+# podman exec -it openbao env BAO_ADDR=http://127.0.0.1:8200 bao status -format=json
+# podman exec -it openbao env BAO_ADDR=http://127.0.0.1:8200 bao operator init -recovery-shares=1 -recovery-threshold=1 -format=json
+
+...

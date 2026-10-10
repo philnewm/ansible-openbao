@@ -1,3 +1,91 @@
 ---
 
+- name: Wait for OpenBao API
+  ansible.builtin.uri:
+    url: "{{ openbao_local_url }}/v1/sys/health"
+    method: GET
+    return_content: true
+    status_code: 200
+  register: openbao_health
+  retries: 10
+  delay: 1
+  until: openbao_health.status == 200
+
+- name: Verify OpenBao is initialized and unsealed
+  ansible.builtin.assert:
+    that:
+      - openbao_health.json.initialized
+      - not openbao_health.json.sealed
+    quiet: true
+
+- name: Log in as test user
+  community.hashi_vault.vault_login:
+    url: "{{ openbao_local_url }}"
+    auth_method: userpass
+    mount_point: "{{ openbao_test_auth_mount }}"
+    username: "{{ openbao_test_user }}"
+    password: "{{ openbao_test_password }}"
+  register: openbao_test_user_login
+  no_log: true
+
+- name: Verify user login succeeded
+  ansible.builtin.assert:
+    that: openbao_test_user_login.login.auth.client_token is defined
+    quiet: true
+
+- name: Read enabled secrets engines
+  community.hashi_vault.vault_read:
+    url: "{{ openbao_local_url }}"
+    token: "{{ openbao_test_user_login.login.auth.client_token }}"
+    username: "{{ openbao_test_user }}"
+    password: "{{ openbao_test_password }}"
+    path: sys/mounts
+  register: openbao_secret_engines
+  no_log: true
+
+- name: Enable Molecule KV v2 secrets engine
+  when: (openbao_test_kv_mount ~ '/') not in openbao_secret_engines.data.data
+  community.hashi_vault.vault_write:
+    url: "{{ openbao_local_url }}"
+    token: "{{ openbao_test_user_login.login.auth.client_token }}"
+    username: "{{ openbao_test_user }}"
+    password: "{{ openbao_test_password }}"
+    path: "sys/mounts/{{ openbao_test_kv_mount }}"
+    data:
+      type: kv
+      options:
+        version: "2"
+  no_log: true
+
+- name: Create test secret
+  community.hashi_vault.vault_kv2_write:
+    url: "{{ openbao_local_url }}"
+    token: "{{ openbao_test_user_login.login.auth.client_token }}"
+    username: "{{ openbao_test_user }}"
+    password: "{{ openbao_test_password }}"
+    engine_mount_point: "{{ openbao_test_kv_mount }}"
+    path: "{{ openbao_test_secret }}"
+    data:
+      username: molecule
+      password: test-password
+  no_log: true
+
+- name: Read test secret
+  community.hashi_vault.vault_kv2_get:
+    url: "{{ openbao_local_url }}"
+    token: "{{ openbao_test_user_login.login.auth.client_token }}"
+    username: "{{ openbao_test_user }}"
+    password: "{{ openbao_test_password }}"
+    engine_mount_point: "{{ openbao_test_kv_mount }}"
+    path: "{{ openbao_test_secret }}"
+  register: openbao_test_secret_result
+  no_log: true
+
+- name: Verify test secret contents
+  ansible.builtin.assert:
+    that:
+      - openbao_test_secret_result.secret.username == "molecule"
+      - openbao_test_secret_result.secret.password == "test-password"
+    quiet: true
+
 ...
