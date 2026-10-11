@@ -21,7 +21,7 @@
     state: present
     update_cache: true
 
-- name: Include pulp setup
+- name: Include service setup
   ansible.builtin.include_tasks:
     file: service_setup.yml
 
