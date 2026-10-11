@@ -1,6 +1,7 @@
 ---
 
 state: present
+openbao_vars_file: null
 openbao_user: "srv_openbao"
 openbao_user_home: "/var/lib/{{ openbao_user }}"
 openbao_service_dir: "{{ openbao_user_home }}/openbao_service"
@@ -52,5 +53,6 @@ open_bao_recovery_pgp_keys: []
 openbao_policies:
   - name: molecule-test
     file: testing_policy.hcl
+openbao_post_tasks: null
 
 ...

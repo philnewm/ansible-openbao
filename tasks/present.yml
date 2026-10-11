@@ -1,5 +1,10 @@
 ---
 
+- name: Include vars file if provided
+  when: openbao_vars_file != None
+  ansible.builtin.include_vars:
+    file: "{{ openbao_vars_file }}"
+
 - name: Include rootless user setup
   become: true
   ansible.builtin.import_role:
@@ -60,5 +65,10 @@
         state: "enabled"
         permanent: true
         immediate: true
+
+- name: Include post_tasks
+  when: openbao_post_tasks != None
+  ansible.builtin.include_tasks:
+    file: "{{ openbao_post_tasks }}"
 
 ...
