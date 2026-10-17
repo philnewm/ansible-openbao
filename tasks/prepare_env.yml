@@ -48,12 +48,11 @@
     - name: Export public key
       environment:
         GNUPGHOME: "{{ molecule_gpg_home }}"
-      ansible.builtin.command:
-        argv:
-          - gpg
-          - --armor
-          - --export
-          - "OpenBao Molecule Test"
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          gpg --export "OpenBao Molecule Test" | base64 -w0
+        executable: /bin/bash
       register: openbao_test_public_key
       changed_when: false
 

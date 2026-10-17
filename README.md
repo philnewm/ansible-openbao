@@ -48,6 +48,8 @@ Elaborate external dependencies and how to use them.
 
 ## Role Variables
 
+open_bao_recovery_pgp_keys[].content must contain a base64-encoded binary OpenPGP public key without ASCII-armored headers. Generate it using gpg --export <key-id> | base64 -w0.
+
 * defaults/main.yml
   * first_var
   * sec_var
