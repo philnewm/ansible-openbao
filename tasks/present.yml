@@ -10,16 +10,9 @@
   ansible.builtin.import_role:
     name: philnewm.podman_rootless_user
   vars:
-    rootless_user: "{{ openbao_user }}"
-    rootless_user_home: "/var/lib/{{ openbao_user }}"
+    podman_rootless_user: "{{ openbao_user }}"
+    podman_rootless_user_home: "/var/lib/{{ openbao_user }}"
     system_user: true
-
-- name: Ensure required podman packages are installed
-  become: true
-  ansible.builtin.package:
-    name: "{{ podman_packages }}"
-    state: present
-    update_cache: true
 
 - name: Include service setup
   ansible.builtin.include_tasks:

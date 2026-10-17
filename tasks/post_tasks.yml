@@ -3,6 +3,17 @@
 - name: Configure user access
   when: bao_init_response is defined
   block:
+    - name: Wait for OpenBao API from managed host
+      ansible.builtin.uri:
+        url: "{{ openbao_local_url }}/v1/sys/health"
+        method: GET
+        status_code: [200]
+      register: bao_health
+      until: bao_health.status | default(-1) == 200
+      retries: 15
+      delay: 2
+      changed_when: false
+
     - name: Decrypt initial root token
       delegate_to: localhost
       environment:

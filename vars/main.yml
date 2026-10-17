@@ -1,10 +1,5 @@
 ---
 
-podman_packages:
-  - podman
-  - systemd-container
-  - passt
-
 opanbao_packages:
   redhat:
     - epel-release

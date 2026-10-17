@@ -66,7 +66,6 @@
     mode: "0644"
   register: openbao_config_file_result
 
-
 - name: Write root token encryption public key
   become: true
   when: open_bao_root_token_gpg_key is not none
@@ -92,6 +91,7 @@
     mode: "0600"
 
 - name: Build recovery PGP key path list
+  when: open_bao_recovery_pgp_keys is not none
   ansible.builtin.set_fact:
     openbao_recovery_pgp_key_paths: >-
       {{
@@ -114,7 +114,7 @@
     name: "{{ openbao_auto_unseal_key_name }}"
     data: "{{ openbao_auto_unseal_key }}"
     state: present
-    skip_existing: true  # prevent overrides in subsequent runs
+    skip_existing: true  # prevent overrides in subsequent runs - might become an issue for rotation
   no_log: true
 
 - name: Template openbao quadlet
@@ -167,32 +167,42 @@
       ansible.builtin.set_fact:
         bao_status_json: "{{ bao_status.stdout | from_json }}"
 
-    - name: Initilialize OpenBao configuration
-      become: true
-      become_user: "{{ openbao_user }}"
+    - name: Handle init
       when: not bao_status_json.initialized
-      containers.podman.podman_container_exec:
-        name: "{{ openbao_container_name }}"
-        env:
-          BAO_ADDR: "{{ openbao_local_url }}"
-        argv:
-          - bao
-          - operator
-          - init
-          - -recovery-shares=1
-          - -recovery-threshold=1
-          - "-root-token-pgp-key={{ openbao_volumes.config.container_path }}/root-token.pgp"
-          - "-recovery-pgp-keys={{ openbao_recovery_pgp_key_paths | join(',') }}"
-          - -format=json
-      register: bao_init
-      changed_when: true
+      block:
+        - name: Set OpenBao init arguments
+          ansible.builtin.set_fact:
+            openbao_init_args:
+              - bao
+              - operator
+              - init
+              - -recovery-shares=1
+              - -recovery-threshold=1
+              - -format=json
 
-    - name: Parse bao init result
-      when: not bao_status_json.initialized
-      ansible.builtin.set_fact:
-        bao_init_response: "{{ bao_init.stdout | from_json }}"
+        - name: Add root token PGP argument
+          when: open_bao_root_token_gpg_key is not none
+          ansible.builtin.set_fact:
+            openbao_init_args: "{{ openbao_init_args + ['-root-token-pgp-key=' ~ openbao_volumes.config.container_path ~ '/root-token.pgp'] }}"
 
-# podman exec -it openbao env BAO_ADDR=http://127.0.0.1:8200 bao status -format=json
-# podman exec -it openbao env BAO_ADDR=http://127.0.0.1:8200 bao operator init -recovery-shares=1 -recovery-threshold=1 -format=json
+        - name: Add recovery PGP argument
+          when: open_bao_recovery_pgp_keys is not none
+          ansible.builtin.set_fact:
+            openbao_init_args: "{{ openbao_init_args + ['-recovery-pgp-keys=' ~ (openbao_recovery_pgp_key_paths | join(','))] }}"
+
+        - name: Initilialize OpenBao configuration
+          become: true
+          become_user: "{{ openbao_user }}"
+          containers.podman.podman_container_exec:
+            name: "{{ openbao_container_name }}"
+            env:
+              BAO_ADDR: "{{ openbao_local_url }}"
+            argv: "{{ openbao_init_args }}"
+          register: bao_init
+          changed_when: true
+
+        - name: Parse bao init result
+          ansible.builtin.set_fact:
+            bao_init_response: "{{ bao_init.stdout | from_json }}"
 
 ...
