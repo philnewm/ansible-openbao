@@ -47,7 +47,6 @@ openbao_volumes:
     options:
       - rw
       - U
-openbao_post_tasks_file: null
 open_bao_root_token_gpg_key: null
 open_bao_recovery_pgp_keys: []
 openbao_policies:

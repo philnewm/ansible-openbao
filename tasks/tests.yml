@@ -33,6 +33,23 @@
     that: openbao_test_user_login.login.auth.client_token is defined
     quiet: true
 
+- name: Verify ldap plugin registration
+  community.hashi_vault.vault_read:
+    url: "{{ openbao_local_url }}"
+    auth_method: userpass
+    mount_point: "{{ openbao_test_auth_mount }}"
+    username: "{{ openbao_test_user }}"
+    password: "{{ openbao_test_password }}"
+    path: sys/plugins/catalog
+  register: openbao_plugin_catalog
+  no_log: true
+
+- name: Assert ldap plugin is available
+  ansible.builtin.assert:
+    that: "'ldap' in openbao_plugin_catalog.data.data.auth"
+    fail_msg: "LDAP authentication plugin is not registered."
+    quiet: true
+
 - name: Read enabled secrets engines
   community.hashi_vault.vault_read:
     url: "{{ openbao_local_url }}"
