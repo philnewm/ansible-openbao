@@ -17,3 +17,13 @@ path "molecule-kv/data/*" {
 path "molecule-kv/metadata/*" {
   capabilities = ["read", "list"]
 }
+
+# Read all registered plugins
+path "sys/plugins/catalog" {
+  capabilities = ["read"]
+}
+
+# List registered authentication plugins
+path "sys/plugins/catalog/auth" {
+  capabilities = ["list"]
+}

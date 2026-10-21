@@ -25,3 +25,13 @@ audit "file" "to-stdout" {
     log_raw = "true"
   }
 }
+
+plugin_directory = "/openbao/config/plugins"
+plugin_download_behavior = "fail"
+plugin_auto_download = true
+plugin_auto_register = true
+
+plugin "auth" "ldap" {
+  image = "ghcr.io/openbao/openbao-plugin-auth-ldap:v0.1.0@sha256:5e09e37e704fb9c6773a25c31765fccb341325b123582d81affbdf23340bd64a"
+
+}
