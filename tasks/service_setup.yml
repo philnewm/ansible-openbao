@@ -160,7 +160,10 @@
           - status
           - -format=json
       register: bao_status
-      failed_when: bao_status.rc not in [0, 2]  # rc=2 when sealed
+      retries: 10
+      delay: 1
+      until: bao_status.rc | default(1) in [0, 2]
+      failed_when: bao_status.rc | default(1) not in [0, 2]  # rc=2 when sealed
       changed_when: false
 
     - name: Parse bao status
