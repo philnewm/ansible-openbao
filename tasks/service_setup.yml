@@ -146,7 +146,16 @@
         state: "{{ (openbaoquad_result.changed or openbao_config_file_result.changed) | ternary('restarted', 'started') }}"
         daemon_reload: true
 
-# https://blog.stderr.at/openshift-platform/security/secrets-management/openbao/2026-03-05-openbao-part-6-auto-unsealing/
+    - name: Wait for OpenBao API
+      ansible.builtin.uri:
+        url: "{{ openbao_local_url }}/v1/sys/health"
+        method: GET
+        status_code: [200, 429, 472, 473, 501, 503]
+      register: bao_health
+      retries: 30
+      delay: 2
+      until: bao_health.status | default(0) in [200, 429, 472, 473, 501, 503]
+      changed_when: false
 
     - name: Check bao status
       become: true
@@ -160,9 +169,6 @@
           - status
           - -format=json
       register: bao_status
-      retries: 10
-      delay: 1
-      until: bao_status.rc | default(1) in [0, 2]
       failed_when: bao_status.rc | default(1) not in [0, 2]  # rc=2 when sealed
       changed_when: false
 
@@ -192,7 +198,7 @@
           when: open_bao_recovery_pgp_keys is not none
           ansible.builtin.set_fact:
             openbao_init_args: "{{ openbao_init_args + ['-recovery-pgp-keys=' ~ (openbao_recovery_pgp_key_paths | join(','))] }}"
-
+# https://blog.stderr.at/openshift-platform/security/secrets-management/openbao/2026-03-05-openbao-part-6-auto-unsealing/
         - name: Initilialize OpenBao configuration
           become: true
           become_user: "{{ openbao_user }}"
