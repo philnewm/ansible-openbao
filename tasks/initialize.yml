@@ -1,0 +1,36 @@
+---
+
+- name: Set OpenBao init arguments
+  ansible.builtin.set_fact:
+    openbao_init_args:
+      - bao
+      - operator
+      - init
+      - -recovery-shares={{ openbao_recovery_shares }}
+      - -recovery-threshold={{ openbao_recovery_threshold }}
+      - -format=json
+
+- name: Add root token PGP argument
+  when: open_bao_root_token_gpg_key is not none
+  ansible.builtin.set_fact:
+    openbao_init_args: "{{ openbao_init_args + ['-root-token-pgp-key=' ~ openbao_volumes.config.container_path ~ '/root-token.pgp'] }}"
+
+- name: Add recovery PGP argument
+  when: open_bao_recovery_pgp_keys is not none
+  ansible.builtin.set_fact:
+    openbao_init_args: "{{ openbao_init_args + ['-recovery-pgp-keys=' ~ (openbao_recovery_pgp_key_paths | join(','))] }}"
+# https://blog.stderr.at/openshift-platform/security/secrets-management/openbao/2026-03-05-openbao-part-6-auto-unsealing/
+- name: Initilialize OpenBao configuration
+  containers.podman.podman_container_exec:
+    name: "{{ openbao_container_name }}"
+    env:
+      BAO_ADDR: "{{ openbao_local_url }}"
+    argv: "{{ openbao_init_args }}"
+  register: bao_init
+  changed_when: true
+
+- name: Parse bao init result
+  ansible.builtin.set_fact:
+    bao_init_response: "{{ bao_init.stdout | from_json }}"
+
+...
