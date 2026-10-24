@@ -12,7 +12,9 @@ openbao_config_file_src: openbao.hcl
 openbao_auto_unseal_enabled: true
 openbao_auto_unseal_type: static
 openbao_auto_unseal_key_name: "openbao-seal-key"
-openbao_auto_unseal_key: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
+openbao_auto_unseal_key: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, seed=inventory_hostname) }}"  # override for production usage
+openbao_recovery_shares: 1
+openbao_recovery_threshold: 1
 openbao_test_user: molecule-test
 openbao_test_password: molecule-test-password
 openbao_test_auth_mount: molecule-userpass
