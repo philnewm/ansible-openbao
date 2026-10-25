@@ -101,22 +101,6 @@
         | list
       }}
 
-- name: Create OpenBao seal secret
-  become: true
-  become_user: "{{ openbao_user }}"
-  vars:
-    ansible_become_user: "{{ openbao_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ openbao_uid }}"
-    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ openbao_uid }}/bus"
-  when: openbao_auto_unseal_type == "static" and openbao_auto_unseal_enabled
-  containers.podman.podman_secret:
-    name: "{{ openbao_auto_unseal_key_name }}"
-    data: "{{ openbao_auto_unseal_key }}"
-    state: present
-    skip_existing: true  # prevent overrides in subsequent runs - might become an issue for rotation
-  no_log: true
-
 - name: Template openbao quadlet
   become: true
   ansible.builtin.template:
@@ -138,6 +122,30 @@
     XDG_RUNTIME_DIR: "/run/user/{{ openbao_uid }}"
     DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ openbao_uid }}/bus"
   block:
+    - name: Check bao status
+      containers.podman.podman_container_exec:
+        name: "{{ openbao_container_name }}"
+        env:
+          BAO_ADDR: "{{ openbao_local_url }}"
+        argv:
+          - bao
+          - status
+          - -format=json
+      register: bao_status
+      failed_when: false
+      changed_when: false
+
+    - name: Create OpenBao seal secret
+      when:
+        - openbao_auto_unseal_type == "static"
+        - openbao_auto_unseal_enabled
+        - bao_status.rc != 0
+      containers.podman.podman_secret:
+        name: "{{ openbao_auto_unseal_key_name }}"
+        data: "{{ openbao_auto_unseal_key }}"
+        state: present
+      no_log: true
+
     # creates /var/run/user/<uid>/systemd/generator/openbao.service
     - name: Start or restart openbao
       ansible.builtin.systemd_service:
@@ -158,8 +166,6 @@
       changed_when: false
 
     - name: Check bao status
-      become: true
-      become_user: "{{ openbao_user }}"
       containers.podman.podman_container_exec:
         name: "{{ openbao_container_name }}"
         env:
@@ -176,42 +182,16 @@
       ansible.builtin.set_fact:
         bao_status_json: "{{ bao_status.stdout | from_json }}"
 
-    - name: Handle init
+    - name: Include initilization
       when: not bao_status_json.initialized
-      block:
-        - name: Set OpenBao init arguments
-          ansible.builtin.set_fact:
-            openbao_init_args:
-              - bao
-              - operator
-              - init
-              - -recovery-shares=1
-              - -recovery-threshold=1
-              - -format=json
+      ansible.builtin.include_tasks:
+        file: initialize.yml
 
-        - name: Add root token PGP argument
-          when: open_bao_root_token_gpg_key is not none
-          ansible.builtin.set_fact:
-            openbao_init_args: "{{ openbao_init_args + ['-root-token-pgp-key=' ~ openbao_volumes.config.container_path ~ '/root-token.pgp'] }}"
-
-        - name: Add recovery PGP argument
-          when: open_bao_recovery_pgp_keys is not none
-          ansible.builtin.set_fact:
-            openbao_init_args: "{{ openbao_init_args + ['-recovery-pgp-keys=' ~ (openbao_recovery_pgp_key_paths | join(','))] }}"
-# https://blog.stderr.at/openshift-platform/security/secrets-management/openbao/2026-03-05-openbao-part-6-auto-unsealing/
-        - name: Initilialize OpenBao configuration
-          become: true
-          become_user: "{{ openbao_user }}"
-          containers.podman.podman_container_exec:
-            name: "{{ openbao_container_name }}"
-            env:
-              BAO_ADDR: "{{ openbao_local_url }}"
-            argv: "{{ openbao_init_args }}"
-          register: bao_init
-          changed_when: true
-
-        - name: Parse bao init result
-          ansible.builtin.set_fact:
-            bao_init_response: "{{ bao_init.stdout | from_json }}"
+  always:
+    - name: Remove OpenBao seal secret
+      containers.podman.podman_secret:
+        name: "{{ openbao_auto_unseal_key_name }}"
+        state: absent
+      no_log: true
 
 ...
