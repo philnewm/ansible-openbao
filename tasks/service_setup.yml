@@ -144,6 +144,7 @@
         name: "{{ openbao_auto_unseal_key_name }}"
         data: "{{ openbao_auto_unseal_key }}"
         state: present
+      register: podman_secret  # result gets registered even on skip
       no_log: true
 
     # creates /var/run/user/<uid>/systemd/generator/openbao.service
@@ -151,7 +152,14 @@
       ansible.builtin.systemd_service:
         name: "{{ openbao_container_name }}.service"
         scope: user
-        state: "{{ (openbaoquad_result.changed or openbao_config_file_result.changed) | ternary('restarted', 'started') }}"
+        state: >-
+          {{
+            'restarted' if (
+              openbaoquad_result is changed
+              or openbao_config_file_result is changed
+              or podman_secret is changed
+            ) else 'started'
+          }}
         daemon_reload: true
 
     - name: Wait for OpenBao API
