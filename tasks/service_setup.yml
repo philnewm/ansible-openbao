@@ -23,6 +23,19 @@
     openbao_config_owner: "{{ openbao_user_id_map.openbao.uid + (subuids.stdout.split(':')[1] | int) - 1 }}"
     openbao_config_group: "{{ openbao_user_id_map.openbao.gid + (subgids.stdout.split(':')[1] | int) - 1 }}"
 
+- name: Ensure parent directory permissions
+  become: true
+  loop: "{{ openbao_volumes | dict2items }}"
+  loop_control:
+    loop_var: volume
+    label: "{{ volume.key }}"
+  ansible.builtin.file:
+    path: "{{ volume.value.host_path | dirname }}"
+    state: directory
+    owner: "{{ openbao_user }}"
+    group: "{{ openbao_user }}"
+    mode: "{{ openbao_volume_parent_dir_perm }}"
+
 - name: Ensure directories for volumes exist
   become: true
   loop: "{{ openbao_volumes | dict2items }}"

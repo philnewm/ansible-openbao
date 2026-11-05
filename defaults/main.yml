@@ -30,6 +30,7 @@ openbao_ports:
     container_port: "8200"
     protocol: tcp
 openbao_local_url: "http://127.0.0.1:{{ openbao_ports.api_port.host_port }}"  # due to `tls_disable = true` in config
+openbao_volume_parent_dir_perm: "0750"
 openbao_volumes:
   config:
     host_path: "{{ openbao_service_dir }}/config"
